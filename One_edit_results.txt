@@ -1,0 +1,35 @@
+#### For 1 epoch training 
+
+    (719,
+
+        {'global_step': [719],
+
+        'eval_loss': [0.31651537043059086],
+    
+        'train_loss': [0.36946552991867065]})
+
+    Simple eval results {'eval_loss': 0.30853030095224054}
+
+1 epoch Detailed metrics: 
+
+'char_accuracy_mean': 0.4939109582960301, 
+                    
+'word_accuracy_mean': 0.5942787050558115, 
+                    
+'exact_match_rate': 0.08720340701683228, 
+                    
+'avg_levenshtein': 5.867572500506997, 
+                    
+'pitch_accuracy_mean': 0.3327242539902244, 
+                    
+'pitch_f1_mean': 0.33154141694368316, 
+                    
+'corpus_BLEU': 49.95357356445782
+
+
+Evaluation Results
+==================================================
+Exact Match Rate:             8.72%
+Pitch F1 Score (mean):        33.15%
+Pitch Edit Distance (norm):   34.14%
+Corpus BLEU:                  49.95
