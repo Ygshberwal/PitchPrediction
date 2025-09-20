@@ -9,6 +9,11 @@ from simpletransformers.seq2seq import Seq2SeqModel, Seq2SeqArgs
 from transformers import AutoTokenizer
 import Levenshtein
 import sacrebleu
+from datetime import datetime
+
+start_time = datetime.now()
+print("\n\n"+"="*40)
+print(start_time)
 
 # ---------- User config ----------
 data_dir = "Datasets"
@@ -21,7 +26,7 @@ MODEL_NAME = "facebook/mbart-large-50-many-to-many-mmt"
 OUTPUT_DIR = "outputs_pitch_restore_pairs"
 MBART_LANG = "hi_IN"
 
-# Pitch/vedic marks
+# Pitch marks
 VEDIC_ACCENTS_EXPLICIT = ['\u0951', '\u0952', '\u0953', '\u0954', '\u1CDA']
 COMBINING_MARK_RANGES = [
     (0x0951, 0x0954),
@@ -29,14 +34,12 @@ COMBINING_MARK_RANGES = [
 ]
 SEP_TOKEN = " <SEP> "   # Keep a readable separator in training text (we store the literal with spaces)
 
-# ---------- Reproducibility ----------
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(RANDOM_SEED)
 
-# ---------- Helpers ----------
 def load_sentences(path):
     with open(path, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
@@ -66,11 +69,10 @@ def build_pair_dataframe(lines, sep_token=SEP_TOKEN):
     for i in range(len(lines) - 1):
         line1_pitched = unicodedata.normalize("NFC", lines[i])
         line2_pitched = unicodedata.normalize("NFC", lines[i+1])
-        # Build plain (unpitched) version of line2 using same removal function
         line2_plain = strip_combining_ranges(line2_pitched, COMBINING_MARK_RANGES)
         inp = line1_pitched + sep_token + line2_plain
         tgt = line1_pitched + sep_token + line2_pitched
-        # Optional: filter if either side empty (skip)
+
         if not line1_pitched or not line2_pitched:
             continue
         inputs.append(inp)
@@ -90,7 +92,7 @@ def split_second_sentence_from_pair(text, sep_token=SEP_TOKEN):
     if "<SEP>" in text:
         left, right = text.split("<SEP>", 1)
         return left.strip(), right.strip()
-    # no separator found: best-effort fallback -> return "", whole text
+
     return "", text.strip()
 
 def exact_match(pred, ref):
@@ -134,12 +136,10 @@ def pitch_edit_distance(pred, ref):
     norm = dist / max(len(ref_pitch), 1)
     return dist, norm
 
-# ---------- Load sentence lists ----------
 train_sentences = load_sentences(train_file)
 val_sentences   = load_sentences(val_file)
 test_sentences  = load_sentences(test_file)
 
-# Build pairwise (consecutive) dataframes
 df_train = build_pair_dataframe(train_sentences)
 df_val   = build_pair_dataframe(val_sentences)
 df_test  = build_pair_dataframe(test_sentences)
@@ -148,14 +148,12 @@ print("Train pairs:", len(df_train))
 print("Val pairs:  ", len(df_val))
 print("Test pairs: ", len(df_test))
 
-# show a couple of sample pairs
 print("\nSample data rows (first 2):")
 for i in range(min(2, len(df_train))):
     print("INPUT :", df_train.iloc[i]['input_text'])
     print("TARGET:", df_train.iloc[i]['target_text'])
     print()
 
-# ---------- Tokenizer & model setup ----------
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 # Add vedic accent tokens and separator token if not present
@@ -164,7 +162,6 @@ for t in VEDIC_ACCENTS_EXPLICIT:
     if t not in tokenizer.get_vocab():
         tokens_to_add.append(t)
 if "<SEP>" not in tokenizer.get_vocab():
-    # We'll add the compact form <SEP> as token as well (tokenizer vocab uses tokens without surrounding spaces)
     tokens_to_add.append("<SEP>")
 
 if tokens_to_add:
@@ -180,9 +177,8 @@ if hasattr(tokenizer, "lang_code_to_id") and MBART_LANG in tokenizer.lang_code_t
 else:
     print(f"[WARN] MBART language code '{MBART_LANG}' not found in tokenizer.lang_code_to_id. Proceeding without forced language BOS; decoding quality may degrade.")
 
-# ---------- Seq2Seq args ----------
 model_args = Seq2SeqArgs()
-model_args.num_train_epochs = 1
+model_args.num_train_epochs = 20
 model_args.train_batch_size = 4
 model_args.eval_batch_size = 4
 model_args.max_sequence_length = 256
@@ -214,7 +210,6 @@ model_args.save_best_model = True
 
 use_cuda = torch.cuda.is_available()
 
-# ---------- Build & resize model ----------
 model = Seq2SeqModel(
     encoder_decoder_type = "mbart",
     encoder_decoder_name = MODEL_NAME,
@@ -223,22 +218,18 @@ model = Seq2SeqModel(
     use_cuda = use_cuda
 )
 
-# Resize token embeddings to account for added tokens
 model.model.resize_token_embeddings(len(tokenizer))
 
-# Force mBART language BOS if available
 if hasattr(tokenizer, "lang_code_to_id") and MBART_LANG in tokenizer.lang_code_to_id:
     forced_id = tokenizer.lang_code_to_id[MBART_LANG]
     model.model.config.forced_bos_token_id = forced_id
 
-# ---------- Train ----------
 print(f"\nStarting training with {model_args.num_train_epochs} epochs on {len(df_train)} pairs")
 model.train_model(
     train_data=df_train,
     eval_data=df_val
 )
 
-# ---------- Predict on test set (pair inputs) ----------
 # We'll use df_test inputs and evaluate second-sentence metrics only.
 batch_inputs = df_test["input_text"].tolist()
 refs_full = df_test["target_text"].tolist()
@@ -280,7 +271,6 @@ print(f"Pitch F1 (mean, second sent):     {float(np.mean(pitch_f1s)) * 100:.2f}%
 print(f"Pitch Edit Dist (norm, second):   {float(np.mean(pitch_edit_norm)) * 100:.2f}%")
 print(f"Corpus BLEU (second sent):        {float(bleu_score):.2f}")
 
-# ---------- Qualitative examples (up to 20) ----------
 print("\nQualitative examples (showing second sentence predictions).")
 n_examples = min(20, len(batch_inputs))
 for i in range(n_examples):
@@ -293,5 +283,6 @@ for i in range(n_examples):
     print("PREDICTED (2nd):", pred2)
     print()
 
-# Done
-print("\nAll done. You can now inspect outputs in the printed console and the directory:", OUTPUT_DIR)
+end_time = datetime.now()
+
+print(f"Time taken for {model_args.num_train_epochs} epochs to run is {end_time-start_time}" )

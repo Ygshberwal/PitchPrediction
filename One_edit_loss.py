@@ -9,11 +9,16 @@ from simpletransformers.seq2seq import Seq2SeqModel, Seq2SeqArgs
 from transformers import AutoTokenizer
 import Levenshtein
 import sacrebleu
+from datetime import datetime
 
-data_file = "Datasets/filtered_sanskritdoc.txt"
-train_file = "Datasets/train.txt"
-val_file = "Datasets/val.txt"
-test_file = "Datasets/test.txt"
+start_time = datetime.now()
+print("\n\n"+"="*40)
+print(start_time)
+
+data_dir = "Datasets"
+train_file = os.path.join(data_dir, "train.txt")
+val_file   = os.path.join(data_dir, "val.txt")
+test_file  = os.path.join(data_dir, "test.txt")
 
 RANDOM_SEED = 42
 MODEL_NAME = "facebook/mbart-large-50-many-to-many-mmt"
@@ -69,7 +74,7 @@ df_test = make_dataframe(test_sentences)
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 tokenizer.add_tokens(VEDIC_ACCENTS_EXPLICIT, special_tokens=False)              # one token added
-print("Added accent tokens to tokenizer. New vocab size:", len(tokenizer))
+# print("Added accent tokens to tokenizer. New vocab size:", len(tokenizer))
 
 if hasattr(tokenizer, "lang_code_to_id") and MBART_LANG in tokenizer.lang_code_to_id:
     tokenizer.src_lang = MBART_LANG
@@ -81,7 +86,7 @@ else:
 
 
 model_args = Seq2SeqArgs()
-model_args.num_train_epochs = 1
+model_args.num_train_epochs = 20
 model_args.train_batch_size = 8
 model_args.eval_batch_size = 8
 model_args.max_sequence_length = 256
@@ -162,9 +167,9 @@ def pitch_f1(pred, ref, pitch_tokens=None):
     tp = len(pred_set & ref_set)
     fp = len(pred_set - ref_set)
     fn = len(ref_set - pred_set)
-    precision = tp / (tp + fp) if tp + fp > 0 else 0
-    recall    = tp / (tp + fn) if tp + fn > 0 else 0
-    f1        = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+    precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+    recall    = tp / (tp + fn) if tp + fn > 0 else 0.0
+    f1        = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
     return f1
 
 def extract_pitch_string(s):
@@ -222,3 +227,7 @@ for i in range(min(10, len(batch_inputs))):
     print("TARGET:", refs[i])
     print("PRED  :", hyps[i])
     print()
+
+end_time = datetime.now()
+
+print(f"Time taken for {model_args.num_train_epochs} epochs to run is {end_time-start_time}" )
